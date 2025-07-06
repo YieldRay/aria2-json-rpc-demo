@@ -28,7 +28,7 @@ function createAria2Client({ url = "http://localhost:6800/jsonrpc" }: { url?: st
   return methods;
 }
 
-async function withAria2cProcess(cb: (client: Aria2Methods) => Promise<void>) {
+function createAria2ClientWithProcess() {
   const command = new Deno.Command("aria2c", {
     // we do not want aria2c to create any file
     args: [
@@ -45,15 +45,21 @@ async function withAria2cProcess(cb: (client: Aria2Methods) => Promise<void>) {
   });
 
   const process = command.spawn();
-  await cb(
-    createAria2Client({
-      url: "http://localhost:6800/jsonrpc",
-    })
-  );
-  process.kill();
+  const client = createAria2Client();
+  return new Proxy(client, {
+    get(target, p, receiver) {
+      if (p === Symbol.dispose) {
+        return () => {
+          process.kill();
+          console.log("Aria2 process terminated.");
+        };
+      }
+      return Reflect.get(target, p, receiver);
+    },
+  }) as Aria2Methods & Disposable
 }
 
-withAria2cProcess(async (client) => {
-  const version = await client.getVersion();
-  console.log(version);
-});
+ 
+using client = createAria2ClientWithProcess();
+const version = await client.getVersion();
+console.log(version);
